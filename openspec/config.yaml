@@ -1,0 +1,44 @@
+schema: spec-driven
+
+context: |
+  Project: Fennec — AI-powered security analysis tool
+  Domain: Static application security testing (SAST) with LLM-based reasoning
+  Core differentiator: understands intent and cross-service data flow, not just syntax matching
+
+  Architecture (6-stage pipeline):
+  1. Code ingestion & parsing (AST, multi-language, incremental diff mode)
+  2. Code graph index (call graph, data flow, import chains — graph DB, NOT vector DB)
+  3. Taint & sink tracker (source→sink traversal, unsanitized path detection)
+  4. Context assembler (5–20 relevant functions per candidate taint path)
+  5. LLM reasoning engine (constrained prompts per vuln class, agent loop 3–5 hops)
+  6. Finding synthesizer (dedup, severity scoring, SARIF/PR comment/ticket output)
+
+  Key design principles:
+  - False positive rate is the core metric — every decision evaluated against FP impact
+  - Sanitizers are the moat — org-specific sanitizer trust is the long-term competitive advantage
+  - Incremental by default — PR-diff mode is steady state, full-repo for initial onboarding
+  - Constrained prompts over open-ended — specific vuln class + taint path + structured output
+  - Agent loop is optional — single-shot first, loop only when LLM needs more context
+
+  Tech decisions already made:
+  - Primary store: graph DB (not vector DB) for call graph traversal
+  - Vector DB: optional/augmenting only (CVE matching, fuzzy sink discovery)
+  - LLM agent loop: bounded at 3–5 hops max to control cost
+  - Feedback loop: "won't fix" verdicts NEVER feed model training (suppression only)
+
+  Language: Python preferred for core engine; language of parsers follows AST library availability
+  Output formats required: SARIF, PR comments (GitHub), Jira webhooks, dashboard
+
+rules:
+  proposal:
+    - Keep proposals under 400 words
+    - Always include a "Non-goals" section
+    - Reference relevant sections of the Fennec architecture where applicable
+  design:
+    - Identify data model or schema decisions explicitly
+    - Call out any cross-component interfaces
+    - Note performance or cost implications where relevant
+  tasks:
+    - Break tasks into chunks of max 2 hours
+    - Each task should be independently testable or verifiable
+    - Order tasks so the minimum viable version comes first
