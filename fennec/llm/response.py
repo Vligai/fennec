@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ class LLMVerdict:
     confidence: float
     fix: str
     needs_more_context: bool
+    context_request: list[str] = field(default_factory=list)
 
 
 _FALLBACK_VERDICT = LLMVerdict(
@@ -40,6 +41,7 @@ _FALLBACK_VERDICT = LLMVerdict(
     confidence=0.0,
     fix="",
     needs_more_context=False,
+    context_request=[],
 )
 
 
@@ -90,4 +92,5 @@ class ResponseParser:
             confidence=float(data["confidence"]),
             fix=str(data["fix"]),
             needs_more_context=bool(data.get("needs_more_context", False)),
+            context_request=list(data.get("context_request", [])),
         )
