@@ -1,0 +1,65 @@
+name: 'Fennec Security Scan'
+description: 'AI-powered security scanner. Runs on pull requests and posts findings as PR comments and SARIF annotations.'
+author: 'Fennec'
+
+inputs:
+  fennec-api-key:
+    description: 'Fennec API key (store as a repository secret)'
+    required: true
+  scan-mode:
+    description: 'Scan mode: diff (PR diff only) or full (entire repository)'
+    required: false
+    default: 'diff'
+  fail-on:
+    description: 'Exit with non-zero code when: blocking | any | none'
+    required: false
+    default: 'blocking'
+  sarif-upload:
+    description: 'Upload SARIF results to GitHub Code Scanning'
+    required: false
+    default: 'true'
+  post-comment:
+    description: 'Post a summary comment to the pull request'
+    required: false
+    default: 'true'
+
+outputs:
+  sarif-path:
+    description: 'Path to the generated SARIF output file'
+    value: ${{ steps.scan.outputs.sarif-path }}
+  finding-count:
+    description: 'Total number of findings detected'
+    value: ${{ steps.scan.outputs.finding-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Mask Fennec API key
+      shell: bash
+      run: echo "::add-mask::${{ inputs.fennec-api-key }}"
+
+    - name: Run Fennec scan
+      id: scan
+      shell: bash
+      env:
+        FENNEC_API_KEY: ${{ inputs.fennec-api-key }}
+        GITHUB_TOKEN: ${{ github.token }}
+        INPUT_SCAN_MODE: ${{ inputs.scan-mode }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_SARIF_UPLOAD: ${{ inputs.sarif-upload }}
+        INPUT_POST_COMMENT: ${{ inputs.post-comment }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GIT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: ${{ github.action_path }}/entrypoint.sh
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: inputs.sarif-upload == 'true' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-path }}
+        category: fennec
+
+branding:
+  icon: 'shield'
+  color: 'red'

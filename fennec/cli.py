@@ -15,6 +15,18 @@ def main() -> None:
         help="SQLAlchemy database URL (default: local SQLite file)",
     )
 
+    # --- scan subcommand ---
+    scan_p = subparsers.add_parser("scan", help="Run a security scan")
+    scan_mode = scan_p.add_mutually_exclusive_group()
+    scan_mode.add_argument("--diff", action="store_true", help="Incremental scan on changed files (default)")
+    scan_mode.add_argument("--full", action="store_true", help="Full-repository scan")
+    scan_p.add_argument("--format", default="text", choices=["text", "sarif"], help="Output format")
+    scan_p.add_argument("--output", default=None, help="Write output to file instead of stdout")
+    scan_p.add_argument("--fail-on", default="blocking", choices=["blocking", "any", "none"],
+                        help="Exit code policy (default: blocking)")
+    scan_p.add_argument("--repo-path", default=".", help="Repository path to scan")
+    scan_p.add_argument("--rules-file", default=None, help="Path to custom_rules.yaml")
+
     # --- rules subcommand group ---
     rules_parser = subparsers.add_parser("rules", help="Custom rule authoring tools")
     rules_sub = rules_parser.add_subparsers(dest="rules_command")
@@ -38,7 +50,10 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.command == "propagate":
+    if args.command == "scan":
+        _handle_scan(args)
+
+    elif args.command == "propagate":
         from fennec.signal.store import SignalStore
         from fennec.signal.propagation import PropagationJob
 
@@ -53,6 +68,35 @@ def main() -> None:
     else:
         parser.print_help()
         sys.exit(1)
+
+
+def _handle_scan(args) -> None:
+    import json as _json
+    from fennec.ci.scanner import FailOn, map_exit_code, run_diff_scan, run_full_scan
+    from fennec.output.sarif import SarifRenderer
+
+    if args.full:
+        findings = run_full_scan(repo_path=args.repo_path, custom_rules_path=args.rules_file)
+    else:
+        findings = run_diff_scan(repo_path=args.repo_path, custom_rules_path=args.rules_file)
+
+    if args.format == "sarif":
+        sarif_doc = SarifRenderer().render(findings)
+        output = _json.dumps(sarif_doc, indent=2)
+    else:
+        count = len(findings)
+        output = f"Fennec scan complete: {count} finding(s)."
+        for f in findings:
+            output += f"\n  [{f.severity.value}] {f.vuln_class} in {f.taint_path.nodes[0].get('file_path','?') if f.taint_path.nodes else '?'}"
+
+    if args.output:
+        with open(args.output, "w") as fh:
+            fh.write(output)
+    else:
+        print(output)
+
+    exit_code = map_exit_code(findings, FailOn(args.fail_on))
+    sys.exit(exit_code)
 
 
 def _handle_rules(args) -> None:
