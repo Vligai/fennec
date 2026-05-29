@@ -48,6 +48,15 @@ def main() -> None:
     activate_p.add_argument("--target", default="custom_rules.yaml")
     activate_p.add_argument("--force", action="store_true", help="Bypass FP threshold check")
 
+    publish_p = rules_sub.add_parser("publish", help="Publish a rule to org scope")
+    publish_p.add_argument("--org", action="store_true", required=True, help="Publish to org scope")
+    publish_p.add_argument("--pattern", required=True, help="Pattern to publish, e.g. 'sanitize_cmd()'")
+    publish_p.add_argument("--type", dest="rule_type", default="sanitizer",
+                           choices=["source", "sink", "sanitizer"])
+    publish_p.add_argument("--vuln-class", default="", help="Taint type (e.g. cmdi, sqli)")
+    publish_p.add_argument("--api-url", default=None, help="Fennec API URL (or FENNEC_API_URL env var)")
+    publish_p.add_argument("--api-key", default=None, help="Fennec admin API key (or FENNEC_API_KEY env var)")
+
     args = parser.parse_args()
 
     if args.command == "scan":
@@ -72,8 +81,24 @@ def main() -> None:
 
 def _handle_scan(args) -> None:
     import json as _json
+    import os
     from fennec.ci.scanner import FailOn, map_exit_code, run_diff_scan, run_full_scan
     from fennec.output.sarif import SarifRenderer
+
+    # Wire FENNEC_ORG_ID: fetch org rules at scan startup if configured
+    org_id = os.getenv("FENNEC_ORG_ID", "")
+    if org_id:
+        from fennec.sharing.client import OrgRuleClient
+        api_url = os.getenv("FENNEC_API_URL", "")
+        api_key = os.getenv("FENNEC_API_KEY", "")
+        if api_url and api_key:
+            org_rules = OrgRuleClient(api_url, api_key).fetch(org_id)
+            if org_rules:
+                from fennec.rules.loader import load_rules, merge_org_and_repo_rules
+                repo_path = getattr(args, "rules_file", None) or "custom_rules.yaml"
+                repo_rules = load_rules(repo_path)
+                merged = merge_org_and_repo_rules(org_rules, repo_rules)
+                print(f"[fennec] Loaded {len(org_rules)} org rule(s) for org '{org_id}'")
 
     if args.full:
         findings = run_full_scan(repo_path=args.repo_path, custom_rules_path=args.rules_file)
@@ -157,10 +182,41 @@ def _handle_rules(args) -> None:
         flag = " (force_activated=true)" if args.force else ""
         print(f"Rules activated{flag} → {target}")
 
+    elif args.rules_command == "publish":
+        import os
+        import httpx
+
+        api_url = args.api_url or os.getenv("FENNEC_API_URL", "")
+        api_key = args.api_key or os.getenv("FENNEC_API_KEY", "")
+        org_id = os.getenv("FENNEC_ORG_ID", "")
+
+        if not api_url or not api_key or not org_id:
+            print("Error: FENNEC_API_URL, FENNEC_API_KEY, and FENNEC_ORG_ID must be set", file=sys.stderr)
+            sys.exit(1)
+
+        payload = {
+            "type": args.rule_type,
+            "pattern": args.pattern,
+            "taint_type": args.vuln_class,
+        }
+        try:
+            with httpx.Client() as client:
+                resp = client.post(
+                    f"{api_url}/api/v1/org/{org_id}/rules",
+                    headers={"x-fennec-api-key": api_key},
+                    json=payload,
+                )
+            if resp.status_code == 403:
+                print("Error: Admin access required to publish org rules", file=sys.stderr)
+                sys.exit(1)
+            resp.raise_for_status()
+            print(f"Published {args.rule_type} rule '{args.pattern}' to org '{org_id}'")
+        except httpx.HTTPError as e:
+            print(f"Error publishing rule: {e}", file=sys.stderr)
+            sys.exit(1)
+
     else:
-        from argparse import ArgumentParser
-        import sys
-        print("Usage: fennec rules {suggest,dry-run,activate}", file=sys.stderr)
+        print("Usage: fennec rules {suggest,dry-run,activate,publish}", file=sys.stderr)
         sys.exit(1)
 
 

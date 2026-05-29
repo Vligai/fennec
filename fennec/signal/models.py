@@ -42,3 +42,23 @@ class SanitizerTrust(Base):
     trust_score = Column(Float, nullable=False, default=0.0)
     verdict_count = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class OrgRuleRow(Base):
+    """Org-scoped rule stored in the hosted service; shared across all repos in the org."""
+
+    __tablename__ = "org_rules"
+
+    rule_id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id = Column(String, nullable=False, index=True)
+    type = Column(String, nullable=False)        # source | sink | sanitizer
+    pattern = Column(String, nullable=False)
+    taint_type = Column(String, nullable=False, default="")
+    scope_glob = Column(String, nullable=False, default="")
+    mode = Column(String, nullable=False, default="advisory")
+    created_by = Column(String, nullable=False, default="")
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )

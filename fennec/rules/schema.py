@@ -64,8 +64,15 @@ class NamedRule(BaseModel):
     branches: list[str] = Field(default_factory=list)
 
 
+class RuleOverride(BaseModel):
+    """Repo-level suppression of an inherited org rule."""
+    pattern: str
+    action: str  # "disable"
+
+
 class CustomRules(BaseModel):
     sources: list[SourceRule] = Field(default_factory=list)
     sinks: list[SinkRule] = Field(default_factory=list)
     sanitizers: list[SanitizerRule] = Field(default_factory=list)
     rules: list[NamedRule] = Field(default_factory=list)
+    overrides: list[RuleOverride] = Field(default_factory=list)

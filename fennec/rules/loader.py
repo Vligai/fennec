@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from .schema import CustomRules, SanitizerRule
+from .schema import CustomRules, SanitizerRule, SinkRule, SourceRule
 
 logger = logging.getLogger(__name__)
 
@@ -113,3 +113,69 @@ def advisory_exit_code(rules: list, has_findings: bool) -> int:
         if rule.is_blocking():
             return 1
     return 0
+
+
+def merge_org_and_repo_rules(
+    org_rules: list,
+    repo_rules: CustomRules,
+    debug: bool = False,
+) -> CustomRules:
+    """Merge org-level rules with repo-level rules; repo rules take precedence.
+
+    Disable overrides in repo's `custom_rules.yaml` remove matching org rules.
+    Non-conflicting rules from both levels are combined into the effective set.
+    """
+    disabled: set[str] = {
+        o.pattern for o in repo_rules.overrides if o.action == "disable"
+    }
+    repo_patterns: set[str] = {
+        *{r.pattern for r in repo_rules.sources},
+        *{r.pattern for r in repo_rules.sinks},
+        *{r.pattern for r in repo_rules.sanitizers},
+    }
+
+    merged = CustomRules(
+        sources=list(repo_rules.sources),
+        sinks=list(repo_rules.sinks),
+        sanitizers=list(repo_rules.sanitizers),
+        rules=list(repo_rules.rules),
+        overrides=list(repo_rules.overrides),
+    )
+
+    for org_rule in org_rules:
+        pattern = org_rule.pattern
+
+        if pattern in disabled:
+            logger.debug("[merge] disabled (repo override): %s", pattern)
+            continue
+
+        if pattern in repo_patterns:
+            logger.debug("[merge] skipped org rule %s — repo rule takes precedence", pattern)
+            continue
+
+        rule_type = org_rule.type
+        if rule_type == "sanitizer":
+            merged.sanitizers.append(SanitizerRule(pattern=pattern, covers=org_rule.taint_type))
+        elif rule_type == "source":
+            merged.sources.append(SourceRule(pattern=pattern, type=org_rule.taint_type or "user_input"))
+        elif rule_type == "sink":
+            merged.sinks.append(SinkRule(pattern=pattern, type=org_rule.taint_type or "sqli"))
+
+        logger.debug("[merge] added org rule: %s (%s) [org]", pattern, rule_type)
+
+    if debug:
+        _log_effective_rules(merged)
+
+    return merged
+
+
+def _log_effective_rules(rules: CustomRules) -> None:
+    logger.info("=== Effective rule set ===")
+    for r in rules.sources:
+        logger.info("  [source] %s", r.pattern)
+    for r in rules.sinks:
+        logger.info("  [sink]   %s  (type=%s)", r.pattern, r.type)
+    for r in rules.sanitizers:
+        logger.info("  [sanitizer] %s  (covers=%s)", r.pattern, r.covers)
+    for o in rules.overrides:
+        logger.info("  [override] %s  action=%s", o.pattern, o.action)
