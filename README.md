@@ -108,6 +108,43 @@ Questions:
 
 ---
 
+## Language support
+
+### Tier 1 — Supported (full AST parsing, graph emission, taint traversal)
+
+| Language | Version | Parser | Extensions |
+|---|---|---|---|
+| Python | 3.8 + | `tree-sitter-python` | `.py` |
+| JavaScript | ES2022 + | `tree-sitter-javascript` | `.js` `.jsx` `.mjs` `.cjs` |
+| TypeScript | 5.x | `tree-sitter-typescript` | `.ts` `.tsx` |
+| Go | 1.18 + | `tree-sitter-go` | `.go` |
+
+All Tier 1 parsers extract: function definitions, class/struct methods, call references, import statements, and nested function scoping. Minified JS/TS files (avg line > 500 chars) are skipped automatically.
+
+### Tier 2 — Planned (tree-sitter grammars exist; parsers not yet implemented)
+
+| Language | Priority | Rationale |
+|---|---|---|
+| Java | High | Dominant in enterprise backends; high-value SQLi/XXE targets |
+| Kotlin | High | JVM successor to Java; shares security surface |
+| C# | High | .NET services; prevalent in enterprise and government |
+| Ruby | Medium | Rails apps; common source of mass-assignment and SQLi vulns |
+| PHP | Medium | Largest share of legacy web backends; SSRF/RCE risk |
+| Rust | Medium | Growing systems/web use; memory safety ≠ logic safety |
+| Swift | Low | iOS backends (Vapor); lower server prevalence |
+| C / C++ | Low | Primarily memory-safety issues outside Fennec's taint model |
+
+Adding a Tier 2 language follows the same pattern as existing parsers:
+1. Implement `XxxParser` in `fennec/parsers/xxx_parser.py` using `tree_sitter_languages.get_parser("xxx")`
+2. Register extensions in `detector.py`'s `_EXTENSION_MAP` and add to `SUPPORTED_LANGUAGES`
+3. Add the language to the built-in source/sink taxonomy in `fennec/rules/loader.py`
+
+### Cross-language taint paths
+
+Cross-language taint (e.g. Python service calls Go service via gRPC, passes user input to a shell call) is currently an open research problem. `CROSS_SERVICE` edges exist in the graph schema but are populated via manual custom rules, not static analysis.
+
+---
+
 ## Agent knowledge sources
 
 The agent draws from four layers, applied in order:
@@ -226,14 +263,21 @@ When a sanitizer is marked trusted in one service (e.g. `internal_security.sanit
 
 ---
 
-## Next steps to spec
+## Implementation status
 
-- [ ] Graph DB selection and schema design
-- [ ] Language parser coverage (which languages, which AST libraries)
-- [ ] Signal store data model and propagation rules
-- [ ] Custom rule authoring UX (full wireframes)
-- [ ] LLM prompt library per vuln class
-- [ ] Agent loop termination conditions and cost model
-- [ ] CI integration spec (GitHub Actions, GitLab CI)
-- [ ] Output format spec (SARIF, PR comment templates, Jira webhook)
-- [ ] Multi-tenant org rule sharing design
+All core components are implemented. See `docs/index.md` for the full module map and interface guide.
+
+| Component | Status | Package |
+|---|---|---|
+| Graph DB schema (Neo4j) | ✅ complete | `fennec/graph/` |
+| Language parsers (Python, JS, TS, Go) | ✅ complete | `fennec/parsers/` |
+| Signal store + propagation | ✅ complete | `fennec/signal/` |
+| LLM prompt library | ✅ complete | `fennec/llm/` |
+| Agent loop + cost model | ✅ complete | `fennec/engine/` |
+| Output formats (SARIF, PR comment, Jira) | ✅ complete | `fennec/output/` |
+| Custom rule authoring (AI suggest, dry-run) | ✅ complete | `fennec/rules/` |
+| CI integration (GitHub Actions, GitLab CI) | ✅ complete | `fennec/ci/`, `.github/actions/` |
+| Multi-tenant org rule sharing | ✅ complete | `fennec/sharing/` |
+| Scan orchestrator (wiring all components) | 🔧 scaffolded | `fennec/ci/scanner.py` |
+| Tier 2 language parsers (Java, Kotlin, C#…) | 📋 planned | — |
+| Cross-language taint path inference | 📋 research | — |
